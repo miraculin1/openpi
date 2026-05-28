@@ -2,6 +2,7 @@ from collections.abc import Iterator, Sequence
 import logging
 import multiprocessing
 import os
+import pathlib
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
 
@@ -127,6 +128,22 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+def _resolve_local_lerobot_root(repo_id: str) -> pathlib.Path | None:
+    """Resolve repo_id as a local LeRobot dataset root when it points to one."""
+    repo_path = pathlib.Path(repo_id).expanduser()
+    candidates = [repo_path]
+
+    if not repo_path.is_absolute():
+        candidates.append(pathlib.Path.cwd() / repo_path)
+        candidates.append(pathlib.Path(__file__).resolve().parents[3] / repo_path)
+
+    for candidate in candidates:
+        if (candidate / "meta" / "info.json").is_file():
+            return candidate
+
+    return None
+
+
 def create_torch_dataset(
     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
 ) -> Dataset:
@@ -137,9 +154,11 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+    local_root = _resolve_local_lerobot_root(repo_id)
+    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id, root=local_root)
     dataset = lerobot_dataset.LeRobotDataset(
-        data_config.repo_id,
+        repo_id,
+        root=local_root,
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
         },
